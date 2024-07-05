@@ -1,115 +1,174 @@
-import React, { useState, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/router';
+'use client';
+
+import { useState, useEffect, FormEvent } from 'react';
+import { Button } from '@/ui-kit/Button';
+import { TextInput } from '@/ui-kit/TextInput';
+import { useRouter, useParams } from 'next/navigation';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-} from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
-import Link from 'next/link';
-import ReactPaginate from 'react-paginate';
-import Spinner from '@/components/Spinner';
-import Header from '@/components/Header';
-import formatTimestamp, { orderByDate } from '@/utils/dateUtils';
 
-type CategoryType = {
+interface FormData {
+  category: string;
+  billboard: string;
+  billboardId: string;
+}
+
+interface BillboardData {
   id: string;
   name: string;
-  billboard: string;
-  createdAt: string;
-};
+  imageUrl: string;
+}
 
-const CategoryManagement = () => {
-  const [pageIndex, setPageIndex] = useState(0);
-  const itemsPerPage = 5;
-  const queryClient = useQueryClient();
+const ManageCategory = () => {
   const router = useRouter();
-
-  const fetchCategories = async () => {
-    const response = await axios.get('/api/categories');
-    return orderByDate(response.data) as CategoryType[];
+  const { categoryId } = useParams() as { categoryId: string };
+  
+  const defaultState: FormData = {
+    category: '',
+    billboard: '',
+    billboardId: '',
   };
 
-  const { data, error, isLoading } = useQuery('categories', fetchCategories);
+  const [formData, setFormData] = useState<FormData>(defaultState);
+  const [errors, setErrors] = useState<FormData>(defaultState);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [billboards, setBillboards] = useState<BillboardData[]>([]);
 
-  const handleDelete = async (id: string) => {
+  useEffect(() => {
+    if (categoryId) {
+      axios.get(`/api/categories/${categoryId}`)
+        .then(response => {
+          setFormData(response.data);
+        })
+        .catch(error => {
+          console.error('Error fetching category data:', error);
+        });
+    }
+  }, [categoryId]);
+
+  useEffect(() => {
+    const fetchBillboards = async () => {
+      try {
+        const response = await axios.get('/api/billboards');
+        setBillboards(response.data);
+      } catch (error) {
+        console.error('Error fetching billboards:', error);
+      }
+    };
+
+    fetchBillboards();
+  }, []);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    const billboardId = e.target.options?.[e.target.selectedIndex]?.dataset.billboardId || '';
+
+    setFormData(prev => ({
+      ...prev,
+      [name]: value,
+      billboardId,
+    }));
+  };
+
+  const validateForm = () => {
+    const newErrors = { ...defaultState };
+
+    if (formData.category.length < 2) {
+      newErrors.category = 'Category name must be at least 2 characters long.';
+    }
+
+    if (formData.billboard.length < 4) {
+      newErrors.billboard = 'Billboard name must be at least 4 characters long.';
+    }
+
+    setErrors(newErrors);
+
+    return Object.values(newErrors).every(error => !error);
+  };
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    if (!validateForm()) return;
+
+    setIsLoading(true);
+
     try {
-      await axios.delete(`/api/categories/${id}`);
-      queryClient.invalidateQueries('categories');
-      toast.success('Category removed successfully.');
-    } catch {
-      toast.error('Failed to remove category.');
+      if (categoryId) {
+        await axios.put(`/api/categories/${categoryId}`, formData);
+        toast.success('Category updated successfully.');
+      } else {
+        await axios.post('/api/categories', formData);
+        toast.success('Category created successfully.');
+      }
+      
+      router.push('/admin/categories');
+    } catch (error) {
+      toast.error('Error saving category.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handlePageChange = ({ selected }: { selected: number }) => {
-    setPageIndex(selected);
-  };
-
-  if (isLoading) return <Spinner />;
-  if (error) return <p>Error loading categories.</p>;
-
-  const displayedData = data?.slice(pageIndex * itemsPerPage, (pageIndex + 1) * itemsPerPage);
-
   return (
-    <>
-      <Header title="Manage Categories" description="Control and organize your categories" />
-      <TableContainer component={Paper}>
-        <Table sx={{ minWidth: 650 }} aria-label="categories table">
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Billboard</TableCell>
-              <TableCell align="center">Creation Date</TableCell>
-              <TableCell align="center">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {displayedData?.map((category) => (
-              <TableRow key={category.id}>
-                <TableCell>{category.name}</TableCell>
-                <TableCell>{category.billboard}</TableCell>
-                <TableCell align="center">{formatTimestamp(category.createdAt)}</TableCell>
-                <TableCell align="center">
-                  <button onClick={() => handleDelete(category.id)}>
-                    <DeleteIcon className="text-red-600" />
-                  </button>
-                  <Link href={`/admin/categories/edit/${category.id}`}>
-                    <EditIcon />
-                  </Link>
-                </TableCell>
-              </TableRow>
+    <form onSubmit={handleSubmit}>
+      <div className="flex flex-col gap-4 md:flex-row">
+        <div className="flex-1">
+          <label htmlFor="category" className="block font-semibold mb-1">Category Name</label>
+          <TextInput
+            id="category"
+            name="category"
+            value={formData.category}
+            onChange={handleInputChange}
+            errorMessage={errors.category}
+          />
+        </div>
+        <div className="flex-1">
+          <label htmlFor="billboard" className="block font-semibold mb-1">Billboard</label>
+          <select
+            id="billboard"
+            name="billboard"
+            value={formData.billboard}
+            onChange={handleInputChange}
+            className="w-full border border-gray-300 rounded-md p-2"
+          >
+            <option value="">Select a billboard</option>
+            {billboards.map(board => (
+              <option
+                key={board.id}
+                value={board.name}
+                data-billboard-id={board.id}
+              >
+                {board.name}
+              </option>
             ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-      {data && (
-        <ReactPaginate
-          previousLabel="Previous"
-          nextLabel="Next"
-          breakLabel="..."
-          pageCount={Math.ceil(data.length / itemsPerPage)}
-          marginPagesDisplayed={2}
-          pageRangeDisplayed={5}
-          onPageChange={handlePageChange}
-          containerClassName="pagination flex justify-end mt-4 space-x-2"
-          previousLinkClassName="bg-gray-800 px-4 py-2 rounded text-white"
-          nextLinkClassName="bg-gray-800 px-4 py-2 rounded text-white"
-          disabledClassName="opacity-50 cursor-not-allowed"
-          activeClassName="bg-blue-700"
-          pageClassName="hidden"
-        />
-      )}
-    </>
+          </select>
+          {errors.billboard && <p className="text-red-500">{errors.billboard}</p>}
+        </div>
+      </div>
+      <Button
+        type="submit"
+        className="mt-4"
+        disabled={isLoading}
+      >
+        {categoryId ? 'Update Category' : 'Create Category'}
+      </Button>
+    </form>
   );
 };
 
-export default CategoryManagement;
+export default ManageCategory;
+
+
+  
+
+  
+        
+
+              
+                  
+     
+          
+          
+         
+         
